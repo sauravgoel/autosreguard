@@ -1,0 +1,21 @@
+name: ci
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Build and test
+        run: mvn -B -ntp verify
+      - name: Run the simulation as a smoke test
+        run: java -jar target/autosreguard-0.1.0-SNAPSHOT.jar --scenario=all
