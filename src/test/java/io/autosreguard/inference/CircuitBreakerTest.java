@@ -66,4 +66,26 @@ class CircuitBreakerTest {
         breaker.onFailure();
         assertEquals(CircuitBreaker.State.OPEN, breaker.state());
     }
+
+    @Test
+    void lateFailuresWhileOpenDoNotExtendTheCooldown() {
+        calls(12, 0);
+        clock.advance(Duration.ofSeconds(20));
+        calls(5, 0); // stragglers admitted before the trip
+        clock.advance(Duration.ofSeconds(11));
+        assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.state());
+        assertTrue(breaker.tryAcquire());
+    }
+
+    @Test
+    void lateSuccessesDoNotCloseWithoutProbes() {
+        calls(12, 0);
+        clock.advance(Duration.ofSeconds(31));
+        assertTrue(breaker.tryAcquire());
+        calls(0, 3); // one probe result plus two stragglers
+        assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.state());
+        assertTrue(breaker.tryAcquire());
+        breaker.onSuccess();
+        assertEquals(CircuitBreaker.State.CLOSED, breaker.state());
+    }
 }
