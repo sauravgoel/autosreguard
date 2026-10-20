@@ -20,6 +20,10 @@ import java.util.Objects;
  * <p>For LLM serving, an open breaker on a variant doesn't mean an error to the user: the
  * router skips it and degrades to the next variant. Breakers are what turn a failing
  * GPU pool into graceful degradation instead of a cascading timeout storm.
+ *
+ * <p>Results reported while OPEN are ignored: they belong to calls admitted before the trip,
+ * and letting them re-trip would extend the cooldown for as long as stragglers keep arriving.
+ * In HALF_OPEN only as many successes as probes handed out count towards closing.
  */
 public final class CircuitBreaker {
 
@@ -93,7 +97,13 @@ public final class CircuitBreaker {
     }
 
     public synchronized void onSuccess() {
+        if (state == State.OPEN) {
+            return; // late result of a call admitted before the trip; it says nothing new
+        }
         if (state == State.HALF_OPEN) {
+            if (halfOpenSuccesses >= halfOpenInFlight) {
+                return; // not one of our probes, so it must not close the breaker
+            }
             halfOpenSuccesses++;
             if (halfOpenSuccesses >= halfOpenProbes) {
                 reset();
@@ -104,6 +114,9 @@ public final class CircuitBreaker {
     }
 
     public synchronized void onFailure() {
+        if (state == State.OPEN) {
+            return; // late result; re-tripping here would keep pushing the cooldown out
+        }
         if (state == State.HALF_OPEN) {
             trip();
             return;
