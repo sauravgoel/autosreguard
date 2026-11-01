@@ -94,6 +94,12 @@ public final class SegmentedSloTracker {
     /**
      * Evaluates every SLO at every scope, returning statuses sorted most-severe first.
      * Tenant statuses that fire while their segment does not are marked as masked.
+     *
+     * <p>Tenant counters with no events inside the horizon can no longer contribute to any
+     * window, so they are evicted here instead of being scanned and reported forever. This
+     * keeps memory and evaluation cost proportional to recently active tenants, not to every
+     * tenant ever seen. An outcome recorded concurrently with the eviction of its tenant's
+     * counter may be dropped; that only affects a tenant idle for the entire horizon.
      */
     public List<SloStatus> evaluate() {
         Instant now = clock.instant();
@@ -102,7 +108,14 @@ public final class SegmentedSloTracker {
             SloStatus segStatus = evaluateCounter(slo, new Scope.SegmentScope(slo.segment()),
                     segmentCounters.get(slo.name()), now);
             out.add(segStatus);
-            for (Map.Entry<TenantId, SlidingWindowCounter> e : tenantCounters.get(slo.name()).entrySet()) {
+            Map<TenantId, SlidingWindowCounter> tenants = tenantCounters.get(slo.name());
+            for (Map.Entry<TenantId, SlidingWindowCounter> e : tenants.entrySet()) {
+                if (e.getValue().sum(horizon, now).total() == 0) {
+                    // Re-check under the map's lock so a counter refilled in the meantime is kept.
+                    tenants.computeIfPresent(e.getKey(),
+                            (k, c) -> c.sum(horizon, now).total() == 0 ? null : c);
+                    continue;
+                }
                 SloStatus t = evaluateCounter(slo, new Scope.TenantScope(slo.segment(), e.getKey()), e.getValue(), now);
                 // The key insight of segmented SLOs, expressed in one line:
                 boolean masked = t.firing() && !segStatus.severity().atLeast(t.severity());

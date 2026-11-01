@@ -10,6 +10,9 @@ All notable changes to this project are documented here. The format follows
 - Circuit breakers ignore results that arrive while OPEN, so late failures from calls admitted
   before the trip no longer extend the cooldown, and in HALF_OPEN only as many successes as
   probes handed out can close the breaker.
+- `SegmentedSloTracker` evicts per-tenant counters with no events inside the policy horizon
+  during `evaluate()`, so memory and control-loop cost no longer grow with every tenant ever
+  seen, and idle tenants stop appearing as NONE statuses (#4).
 
 ## [0.1.0] - 2026-09-21
 
