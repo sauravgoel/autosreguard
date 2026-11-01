@@ -87,4 +87,25 @@ class SegmentedSloTrackerTest {
         simulate(tracker, 50, false);
         assertEquals(50, tracker.trackedTenantSeries());
     }
+
+    @Test
+    void idleTenantsAreEvictedOnceTheHorizonPasses() {
+        SegmentedSloTracker tracker = tracker(0.9995);
+        simulate(tracker, 50, false);
+        assertEquals(50, tracker.trackedTenantSeries());
+
+        // Still inside the 24h horizon: nothing is dropped.
+        clock.advance(Duration.ofHours(22));
+        assertEquals(51, tracker.evaluate().size());
+        assertEquals(50, tracker.trackedTenantSeries());
+
+        // acme keeps sending traffic; everyone else goes quiet past the horizon.
+        clock.advance(Duration.ofHours(2));
+        tracker.record(InferenceOutcome.success(clock.instant(), acme, Segment.ENTERPRISE, "m", "us", 300, 20, 100));
+        List<SloStatus> statuses = tracker.evaluate();
+
+        assertEquals(1, tracker.trackedTenantSeries());
+        assertEquals(2, statuses.size(), "segment plus the one active tenant");
+        assertTrue(statuses.stream().anyMatch(s -> s.scope().label().equals("tenant=acme-corp")));
+    }
 }
