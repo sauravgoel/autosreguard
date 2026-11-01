@@ -20,6 +20,7 @@ class AutoSREGuardConfigTest {
         assertTrue(c.dryRun(), "a fresh install must observe, not act");
         assertEquals("127.0.0.1", c.adminBindHost());
         assertEquals(9464, c.adminPort());
+        assertEquals(10_000, c.sloMaxTenantSeries());
         assertEquals(0.85, c.autoThreshold(), 1e-9);
         assertEquals(Duration.ofMinutes(3), c.vetoWindow());
     }

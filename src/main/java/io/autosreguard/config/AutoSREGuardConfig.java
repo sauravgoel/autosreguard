@@ -129,6 +129,7 @@ public final class AutoSREGuardConfig {
     public String adminBindHost() { return string("admin.bind-host", "127.0.0.1"); }
     public Duration controlLoopInterval() { return duration("control.interval", Duration.ofSeconds(15)); }
     public Duration sloBucketWidth() { return duration("slo.bucket-width", Duration.ofMinutes(1)); }
+    public int sloMaxTenantSeries() { return integer("slo.max-tenant-series", 10_000); }
     public long sloMinEvents() { return integer("slo.min-events", 100); }
     public double autoThreshold() { return dbl("remediation.auto-threshold", 0.85); }
     public double suggestThreshold() { return dbl("remediation.suggest-threshold", 0.6); }

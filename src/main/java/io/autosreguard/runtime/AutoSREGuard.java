@@ -86,6 +86,9 @@ public final class AutoSREGuard implements AutoCloseable {
         metrics.gauge("autosreguard_active_anomalies", "Anomalies currently active", Map.of(), active::size);
         metrics.gauge("autosreguard_tracked_tenant_series", "Per-tenant SLO series tracked", Map.of(),
                 slos::trackedTenantSeries);
+        metrics.gauge("autosreguard_untracked_tenant_outcomes",
+                "Outcomes with no per-tenant SLO series because slo.max-tenant-series was reached", Map.of(),
+                slos::untrackedTenantOutcomes);
     }
 
     // ---- Ingestion -------------------------------------------------------------------

@@ -36,7 +36,8 @@ see the ADRs in [`adr/`](adr).
 
 `SlidingWindowCounter` keeps ring-buffered good/total counts per bucket (default one
 minute) over the longest alert window (24h). `SegmentedSloTracker` keeps one counter per
-`(SLO, segment)` and one per `(SLO, tenant)`.
+`(SLO, segment)` and one per `(SLO, tenant)`. Tenant counters with no events in the horizon
+are evicted on each evaluation, and `slo.max-tenant-series` caps how many exist at once.
 
 `BurnRatePolicy` implements multi-window, multi-burn-rate alerting: a rule fires only if both
 its long and short windows burn above the threshold (e.g. 14.4x over 1h *and* 5m), which

@@ -12,6 +12,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SegmentedSloTrackerTest {
@@ -107,5 +108,30 @@ class SegmentedSloTrackerTest {
         assertEquals(1, tracker.trackedTenantSeries());
         assertEquals(2, statuses.size(), "segment plus the one active tenant");
         assertTrue(statuses.stream().anyMatch(s -> s.scope().label().equals("tenant=acme-corp")));
+    }
+
+    @Test
+    void newTenantsPastTheCapStillCountTowardTheirSegment() {
+        SegmentedSloTracker tracker = new SegmentedSloTracker(
+                List.of(SloDefinition.availability("ent", Segment.ENTERPRISE, 0.9995)),
+                BurnRatePolicy.defaults(), Duration.ofMinutes(1), 3, clock);
+        for (int t = 0; t < 5; t++) {
+            tracker.record(InferenceOutcome.success(clock.instant(), TenantId.of("tenant-" + t),
+                    Segment.ENTERPRISE, "m", "us", 300, 20, 100));
+        }
+        // An already-tracked tenant keeps recording normally.
+        tracker.record(InferenceOutcome.success(clock.instant(), TenantId.of("tenant-0"),
+                Segment.ENTERPRISE, "m", "us", 300, 20, 100));
+
+        assertEquals(3, tracker.trackedTenantSeries());
+        assertEquals(2, tracker.untrackedTenantOutcomes());
+        assertEquals(6, segmentStatus(tracker.evaluate()).eventsInHorizon());
+    }
+
+    @Test
+    void rejectsNonPositiveTenantCap() {
+        assertThrows(IllegalArgumentException.class, () -> new SegmentedSloTracker(
+                List.of(SloDefinition.availability("ent", Segment.ENTERPRISE, 0.9995)),
+                BurnRatePolicy.defaults(), Duration.ofMinutes(1), 0, clock));
     }
 }

@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `slo.max-tenant-series` (default 10000) caps per-tenant SLO series. Past the cap, outcomes
+  from untracked tenants still count toward their segment and are reported in the
+  `autosreguard_untracked_tenant_outcomes` metric (#4).
+
 ### Fixed
 - Circuit breakers ignore results that arrive while OPEN, so late failures from calls admitted
   before the trip no longer extend the cooldown, and in HALF_OPEN only as many successes as

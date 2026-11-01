@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Tracks SLOs per segment AND per tenant, and evaluates multi-window burn-rate alerts.
@@ -30,6 +31,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * <h2>Scope of responsibility</h2>
  * This class is a real-time alerting engine with a bounded horizon (the policy's longest
  * window). Long-period compliance reporting (28/30-day) belongs in your time-series database.
+ *
+ * <h2>Bounded tenant cardinality</h2>
+ * Tenant counters idle for the whole horizon are evicted by {@link #evaluate()}, and the
+ * number of tenant series is capped. Once the cap is reached, outcomes from tenants that are
+ * not yet tracked still count toward their segment's SLO but get no tenant-level series;
+ * they are counted in {@link #untrackedTenantOutcomes()} so the condition can be alerted on.
  */
 public final class SegmentedSloTracker {
 
@@ -38,6 +45,13 @@ public final class SegmentedSloTracker {
     private final Clock clock;
     private final Duration horizon;
     private final Duration bucketWidth;
+    private final int maxTenantSeries;
+
+    /** Default cap: ~345 MiB of tenant counters at 1m buckets over a 24h horizon. */
+    public static final int DEFAULT_MAX_TENANT_SERIES = 10_000;
+
+    /** Outcomes that got no tenant series because the cap was reached. */
+    private final LongAdder untrackedTenantOutcomes = new LongAdder();
 
     /** Segment-level counter per SLO name. */
     private final Map<String, SlidingWindowCounter> segmentCounters = new ConcurrentHashMap<>();
@@ -45,18 +59,30 @@ public final class SegmentedSloTracker {
     /** Tenant-level counters: SLO name -> tenant -> counter. */
     private final Map<String, Map<TenantId, SlidingWindowCounter>> tenantCounters = new ConcurrentHashMap<>();
 
-    /**
-     * @param slos        objectives to track
-     * @param policy      burn-rate alert policy
-     * @param bucketWidth resolution of counters; must be well under the policy's shortest window
-     * @param clock       time source
-     */
+    /** Creates a tracker capped at {@link #DEFAULT_MAX_TENANT_SERIES} tenant series. */
     public SegmentedSloTracker(List<SloDefinition> slos, BurnRatePolicy policy, Duration bucketWidth, Clock clock) {
+        this(slos, policy, bucketWidth, DEFAULT_MAX_TENANT_SERIES, clock);
+    }
+
+    /**
+     * @param slos            objectives to track
+     * @param policy          burn-rate alert policy
+     * @param bucketWidth     resolution of counters; must be well under the policy's shortest window
+     * @param maxTenantSeries cap on tenant series across all SLOs; a soft limit that concurrent
+     *                        first-time tenants may exceed by a few series
+     * @param clock           time source
+     */
+    public SegmentedSloTracker(List<SloDefinition> slos, BurnRatePolicy policy, Duration bucketWidth,
+                               int maxTenantSeries, Clock clock) {
         this.slos = List.copyOf(Objects.requireNonNull(slos, "slos"));
         this.policy = Objects.requireNonNull(policy, "policy");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.bucketWidth = Objects.requireNonNull(bucketWidth, "bucketWidth");
         this.horizon = policy.longestWindow();
+        if (maxTenantSeries <= 0) {
+            throw new IllegalArgumentException("maxTenantSeries must be positive: " + maxTenantSeries);
+        }
+        this.maxTenantSeries = maxTenantSeries;
         long distinctNames = this.slos.stream().map(SloDefinition::name).distinct().count();
         if (distinctNames != this.slos.size()) {
             throw new IllegalArgumentException("SLO names must be unique");
@@ -85,9 +111,16 @@ public final class SegmentedSloTracker {
             }
             boolean good = slo.isGood(outcome);
             segmentCounters.get(slo.name()).record(outcome.timestamp(), good);
-            tenantCounters.get(slo.name())
-                    .computeIfAbsent(outcome.tenant(), t -> newCounter())
-                    .record(outcome.timestamp(), good);
+            Map<TenantId, SlidingWindowCounter> tenants = tenantCounters.get(slo.name());
+            SlidingWindowCounter c = tenants.get(outcome.tenant());
+            if (c == null) {
+                if (trackedTenantSeries() >= maxTenantSeries) {
+                    untrackedTenantOutcomes.increment();
+                    continue;
+                }
+                c = tenants.computeIfAbsent(outcome.tenant(), t -> newCounter());
+            }
+            c.record(outcome.timestamp(), good);
         }
     }
 
@@ -167,5 +200,10 @@ public final class SegmentedSloTracker {
     /** Number of tenants currently tracked across all SLOs (a cardinality health metric). */
     public int trackedTenantSeries() {
         return tenantCounters.values().stream().mapToInt(Map::size).sum();
+    }
+
+    /** Total outcomes that were not tracked per tenant because the series cap was reached. */
+    public long untrackedTenantOutcomes() {
+        return untrackedTenantOutcomes.sum();
     }
 }

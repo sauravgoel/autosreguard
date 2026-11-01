@@ -68,7 +68,8 @@ public final class AutoSREGuardFactory {
                                     FleetState fleet, ActionExecutor executor, Notifier notifier, AuditLog audit) {
         BurnRatePolicy defaults = BurnRatePolicy.defaults();
         BurnRatePolicy policy = new BurnRatePolicy(defaults.rules(), c.sloMinEvents());
-        SegmentedSloTracker tracker = new SegmentedSloTracker(defaultSlos(c), policy, c.sloBucketWidth(), clock);
+        SegmentedSloTracker tracker = new SegmentedSloTracker(defaultSlos(c), policy, c.sloBucketWidth(),
+                c.sloMaxTenantSeries(), clock);
 
         RootCauseAnalyzer analyzer = new RootCauseAnalyzer(graph, changes, Duration.ofMinutes(30), Duration.ofMinutes(10));
         ConfidencePolicy confidence = new ConfidencePolicy(c.autoThreshold(), c.suggestThreshold(), c.vetoWindow());
