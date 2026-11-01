@@ -13,6 +13,11 @@ reversible audit trail either way.
 
 It is written in Java 21 with **zero runtime dependencies**.
 
+**Contents:** [Why](#why) · [Quickstart](#quickstart) · [Scenarios](#the-scenarios) ·
+[Architecture](#architecture) · [Packages](#packages) ·
+[Integrating with a real fleet](#integrating-with-a-real-fleet) · [Admin API](#admin-api) ·
+[Configuration](#configuration) · [Non-goals](#non-goals) · [Development](#development)
+
 ---
 
 ## Why
@@ -158,6 +163,14 @@ in a gateway.
 | POST | `/v1/remediations/{id}/approve?by=you` | Execute a pending proposal now |
 | POST | `/v1/remediations/{id}/veto?by=you&reason=...` | Cancel a pending proposal |
 | POST | `/v1/remediations/{id}/revert?by=you` | Run the inverse of an executed action |
+
+For example, to approve or veto a proposal announced in a notification (the action id is in
+the notification and in `/v1/audit`):
+
+```bash
+curl -X POST "localhost:9464/v1/remediations/<action-id>/approve?by=alice"
+curl -X POST "localhost:9464/v1/remediations/<action-id>/veto?by=alice&reason=planned+maintenance"
+```
 
 `by` is mandatory: every human action is attributed. The API has no built-in auth; see
 [`SECURITY.md`](SECURITY.md).
