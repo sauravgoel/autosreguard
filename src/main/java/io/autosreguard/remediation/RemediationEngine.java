@@ -168,15 +168,28 @@ public final class RemediationEngine {
     /**
      * Undoes an executed action by running its inverse. Human-initiated reverts bypass the
      * oscillation guard: a person deliberately undoing automation is not a remediation loop.
+     *
+     * <p>If the inverse fails, the action stays revertible so the revert can be retried; the
+     * failed attempt is audited as {@code FAILED}, a page goes out, and the exception is rethrown.
      */
     public synchronized RemediationOutcome revert(String actionId, String who) throws RemediationException {
-        RemediationAction original = executed.remove(actionId);
+        RemediationAction original = executed.get(actionId);
         if (original == null) {
             throw new IllegalArgumentException("no executed action " + actionId);
         }
         RemediationAction inverse = original.inverse();
-        executor.execute(inverse);
         AuditRecord last = audit.latest(actionId).orElseThrow();
+        try {
+            executor.execute(inverse);
+        } catch (RemediationException | RuntimeException e) {
+            audit.append(new AuditRecord(audit.nextSeq(), actionId, clock.instant(), AuditRecord.Status.FAILED,
+                    last.tier(), last.confidence(), last.subject(), inverse.describe(), original.describe(), who,
+                    "revert failed: " + e.getMessage(), last.evidence()));
+            notifier.notify(new Notifier.Notification(Notifier.Urgency.PAGE,
+                    "Revert FAILED: " + inverse.describe() + ": " + e.getMessage(), actionId, last.evidence()));
+            throw e;
+        }
+        executed.remove(actionId);
         audit.append(new AuditRecord(audit.nextSeq(), actionId, clock.instant(), AuditRecord.Status.REVERTED,
                 last.tier(), last.confidence(), last.subject(), inverse.describe(), original.describe(), who,
                 "reverted by " + who, last.evidence()));

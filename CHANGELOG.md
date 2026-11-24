@@ -13,6 +13,9 @@ All notable changes to this project are documented here. The format follows
 - `SegmentedSloTracker` evicts per-tenant counters with no events inside the policy horizon
   during `evaluate()`, so memory and control-loop cost no longer grow with every tenant ever
   seen, and idle tenants stop appearing as NONE statuses (#4).
+- `RemediationEngine.revert()` keeps the action revertible when the inverse fails, records the
+  failed attempt as `FAILED` in the audit log and pages, so a transient executor error no longer
+  permanently removes the human undo (#7).
 
 ## [0.1.0] - 2026-09-21
 
