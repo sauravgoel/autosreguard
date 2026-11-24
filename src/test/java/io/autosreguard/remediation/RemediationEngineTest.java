@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -126,6 +127,37 @@ class RemediationEngineTest {
         assertEquals(new RemediationAction.Rollback("pool-llama-70b", "v42", "v43"), executed.get(1));
         assertEquals(List.of(AuditRecord.Status.EXECUTED, AuditRecord.Status.REVERTED),
                 audit.history(id).stream().map(AuditRecord::status).toList());
+    }
+
+    @Test
+    void failedRevertIsAuditedAndPagedAndCanBeRetried() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        engine = new RemediationEngine(RemediationPlanner.defaults(FLEET), ConfidencePolicy.defaults(),
+                OscillationGuard.defaults(clock), a -> {
+                    if (calls.incrementAndGet() == 2) {
+                        throw new RemediationException("k8s API unavailable");
+                    }
+                    executed.add(a);
+                }, notifications::add, audit, clock);
+        String id = engine.handle(badDeploy(0.95)).actionId();
+
+        RemediationException e = assertThrows(RemediationException.class, () -> engine.revert(id, "carol"));
+        assertEquals("k8s API unavailable", e.getMessage());
+        assertEquals(List.of(AuditRecord.Status.EXECUTED, AuditRecord.Status.FAILED),
+                audit.history(id).stream().map(AuditRecord::status).toList());
+        AuditRecord failed = audit.latest(id).orElseThrow();
+        assertEquals("carol", failed.actor());
+        assertTrue(failed.note().startsWith("revert failed: "));
+        Notifier.Notification page = notifications.get(notifications.size() - 1);
+        assertEquals(Notifier.Urgency.PAGE, page.urgency());
+        assertEquals(id, page.actionId());
+
+        RemediationOutcome retry = engine.revert(id, "carol");
+        assertEquals(AuditRecord.Status.REVERTED, retry.status());
+        assertEquals(new RemediationAction.Rollback("pool-llama-70b", "v42", "v43"), executed.get(1));
+        assertEquals(List.of(AuditRecord.Status.EXECUTED, AuditRecord.Status.FAILED, AuditRecord.Status.REVERTED),
+                audit.history(id).stream().map(AuditRecord::status).toList());
+        assertThrows(IllegalArgumentException.class, () -> engine.revert(id, "carol"));
     }
 
     @Test
